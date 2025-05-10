@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Бег от лавы</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body, html { width: 100%; height: 100%; overflow: hidden; font-family: Arial; touch-action: manipulation; background: #222; }
+        #game-container { position: relative; width: 100%; height: 100%; overflow: hidden; }
+        #player { position: absolute; width: 40px; height: 60px; background: #3498db; border-radius: 8px; bottom: 100px; left: 50px; z-index: 10; }
+        .platform { position: absolute; background: #2ecc71; border-radius: 5px; z-index: 5; }
+        #lava { position: absolute; width: 100%; height: 30px; background: #e74c3c; bottom: 0; z-index: 3; }
+        #finish { position: absolute; width: 20px; height: 80px; background: gold; right: 0; bottom: 30px; z-index: 5; }
+        #controls { position: absolute; bottom: 15px; width: 100%; display: flex; justify-content: space-between; padding: 0 15px; z-index: 25; }
+        .control-btn { width: 70px; height: 70px; background: rgba(255,255,255,0.3); border-radius: 50%; display: flex; justify-content: center; align-items: center; color: white; font-size: 24px; user-select: none; touch-action: manipulation; }
+        #jump-btn { background: rgba(52,152,219,0.7); }
+        #game-over, #game-win { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); color: white; display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 30; text-align: center; padding: 15px; }
+        #timer { position: absolute; top: 15px; right: 15px; color: white; font-size: 20px; z-index: 20; }
+        .restart-btn { margin-top: 15px; padding: 8px 16px; font-size: 16px; background: #3498db; color: white; border: none; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="player"></div>
+        <div id="finish"></div>
+        <div id="lava"></div>
+        <div id="timer">0 сек</div>
+        <div id="controls">
+            <div class="control-btn" id="left-btn">←</div>
+            <div class="control-btn" id="right-btn">→</div>
+            <div class="control-btn" id="jump-btn">↑</div>
+        </div>
+        <div id="game-over">
+            <h1>ПОРАЖЕНИЕ!</h1>
+            <p id="lose-time">Время: 0 сек</p>
+            <button class="restart-btn" id="restart-btn">Играть снова</button>
+        </div>
+        <div id="game-win">
+            <h1>ПОБЕДА!</h1>
+            <p id="win-time">Время: 0 сек</p>
+            <button class="restart-btn" id="restart-btn-win">Играть снова</button>
+        </div>
+    </div>
+
+    <script>
+        // Инициализация элементов
+        const player = document.getElementById('player');
+        const lava = document.getElementById('lava');
+        const timerDisplay = document.getElementById('timer');
+        const gameOverScreen = document.getElementById('game-over');
+        const gameWinScreen = document.getElementById('game-win');
+        const restartBtn = document.getElementById('restart-btn');
+        const restartBtnWin = document.getElementById('restart-btn-win');
+        const leftBtn = document.getElementById('left-btn');
+        const rightBtn = document.getElementById('right-btn');
+        const jumpBtn = document.getElementById('jump-btn');
+        
+        // Игровые переменные
+        let gameActive = true;
+        let platforms = [];
+        let isJumping = false;
+        let leftPressed = false;
+        let rightPressed = false;
+        let startTime = Date.now();
+        let lavaHeight = 30;
+        let lavaSpeed = 0.4;
+        let playerVelocityY = 0;
+        const gravity = 0.3;
+        
+        // Инициализация игры
+        function initGame() {
+            gameActive = true;
+            lavaHeight = 30;
+            lavaSpeed = 0.4;
+            startTime = Date.now();
+            document.querySelectorAll('.platform').forEach(p => p.remove());
+            platforms = [];
+            
+            player.style.bottom = '100px';
+            player.style.left = '50px';
+            lava.style.height = '30px';
+            
+            gameOverScreen.style.display = 'none';
+            gameWinScreen.style.display = 'none';
+            
+            createPlatform(0, 100, window.innerWidth, 50, '#8b4513');
+            createPlatform(200, 160, 120, 15);
+            createPlatform(400, 120, 120, 15);
+            createPlatform(600, 180, 120, 15);
+            createPlatform(800, 140, 120, 15);
+            createPlatform(window.innerWidth - 100, 100, 100, 15, 'gold');
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        function createPlatform(x, y, width, height, color = '#2ecc71') {
+            const platform = document.createElement('div');
+            platform.className = 'platform';
+            platform.style.left = x + 'px';
+            platform.style.top = y + 'px';
+            platform.style.width = width + 'px';
+            platform.style.height = height + 'px';
+            platform.style.backgroundColor = color;
+            document.getElementById('game-container').appendChild(platform);
+            platforms.push({ element: platform, x, y, width, height });
+        }
+        
+        function setupControls() {
+            leftBtn.addEventListener('touchstart', () => leftPressed = true);
+            leftBtn.addEventListener('touchend', () => leftPressed = false);
+            rightBtn.addEventListener('touchstart', () => rightPressed = true);
+            rightBtn.addEventListener('touchend', () => rightPressed = false);
+            jumpBtn.addEventListener('touchstart', jump);
+            restartBtn.addEventListener('click', initGame);
+            restartBtnWin.addEventListener('click', initGame);
+        }
+        
+        function jump() {
+            if (isJumping || !isOnPlatform()) return;
+            isJumping = true;
+            playerVelocityY = -10;
+        }
+        
+        function isOnPlatform() {
+            const playerBottom = parseInt(player.style.bottom) + 60;
+            const playerLeft = parseInt(player.style.left);
+            const playerRight = playerLeft + 40;
+            
+            for (const platform of platforms) {
+                if (playerBottom >= platform.y && 
+                    playerBottom <= platform.y + 15 &&
+                    playerRight > platform.x && 
+                    playerLeft < platform.x + platform.width) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        function gameLoop() {
+            if (!gameActive) return;
+            
+            if (leftPressed) player.style.left = Math.max(0, parseInt(player.style.left) - 4) + 'px';
+            if (rightPressed) player.style.left = Math.min(window.innerWidth - 40, parseInt(player.style.left) + 4) + 'px';
+            
+            playerVelocityY += gravity;
+            player.style.bottom = (parseInt(player.style.bottom) + playerVelocityY) + 'px';
+            
+            if (isOnPlatform() && playerVelocityY > 0) {
+                playerVelocityY = 0;
+                isJumping = false;
+                const platform = platforms.find(p => 
+                    parseInt(player.style.bottom) + 60 >= p.y && 
+                    parseInt(player.style.bottom) + 60 <= p.y + 15 &&
+                    parseInt(player.style.left) + 40 > p.x && 
+                    parseInt(player.style.left) < p.x + p.width
+                );
+                if (platform) player.style.bottom = (platform.y - 60) + 'px';
+            }
+            
+            lavaSpeed += 0.00015;
+            lavaHeight += lavaSpeed;
+            lava.style.height = lavaHeight + 'px';
+            
+            if (parseInt(player.style.bottom) <= window.innerHeight - lavaHeight) {
+                endGame(false);
+                return;
+            }
+            
+            if (parseInt(player.style.left) + 40 >= window.innerWidth - 20) {
+                endGame(true);
+                return;
+            }
+            
+            timerDisplay.textContent = Math.floor((Date.now() - startTime) / 1000) + ' сек';
+            requestAnimationFrame(gameLoop);
+        }
+        
+        function endGame(win) {
+            gameActive = false;
+            const time = Math.floor((Date.now() - startTime) / 1000);
+            if (win) {
+                document.getElementById('win-time').textContent = `Время: ${time} сек`;
+                gameWinScreen.style.display = 'flex';
+            } else {
+                document.getElementById('lose-time').textContent = `Время: ${time} сек`;
+                gameOverScreen.style.display = 'flex';
+            }
+        }
+        
+        // Запуск игры
+        setupControls();
+        initGame();
+    </script>
+</body>
+</html>
